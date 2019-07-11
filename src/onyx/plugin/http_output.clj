@@ -3,9 +3,15 @@
             [onyx.plugin.protocols :as p]
             [taoensso.timbre :as log]
             [aleph.http :as http]
-            [manifold.deferred :as d])
+            [manifold.deferred :as d]
+            [schema.core :as S]
+            [throttler.core :as throttler])
   (:import [java.util Random]))
 
+(def ThrottleConfig
+  {:rate S/Int
+   :period (S/enum :millisecond :second :minute :hour :day)
+   :burst S/Int})
 
 (defn next-backoff [attempt params]
   (when (:allow-retry? params)
@@ -79,10 +85,10 @@
 
 (defn send-request
   "Use send-request to execute HTTP requests in a :function task type. Requires function-lifecycle on the task."
-  [{:keys [success? post-process retry-params]} run-state message]
+  [{:keys [success? post-process retry-params throttle]} run-state message]
   (let [request (or (:request message) (throw (ex-info "No :request in message" message)))
         send-retry-params (assoc retry-params :initial-request-time (System/currentTimeMillis))
-        result (deref (process-message request success? post-process nil #(if (instance? Throwable %) % (:response %)) send-retry-params run-state))]
+        result (deref (throttle (process-message request success? post-process nil #(if (instance? Throwable %) % (:response %)) send-retry-params run-state)))]
     (if (instance? Throwable result)
       (throw result)
       (assoc message :response result))))
@@ -94,7 +100,7 @@
 (deftype HttpOutput [success? post-process retry-params
                      ^:unsynchronized-mutable async-exception-info
                      ^:unsynchronized-mutable in-flight-writes
-                     run-state]
+                     run-state throttle]
   p/Plugin
   (start [this event]
     (reset! run-state true)
@@ -133,8 +139,9 @@
           post-process       (apply partial post-process params)]
       (run! (fn [message]
               (swap! in-flight-writes inc)
-              (process-message message
-                success? post-process ack-fn async-exception-fn retry run-state))
+              (throttle 
+                (process-message message success? post-process ack-fn 
+                                 async-exception-fn retry run-state)))
             write-batch))
     true))
 
@@ -155,7 +162,10 @@
         retry-params (assoc retry-params :allow-retry? (some? retry-params))]
     {:success? success?
      :post-process post-process
-     :retry-params retry-params}))
+     :retry-params retry-params
+     :throttle (if-let [{:keys [rate period burst]} (:http-output/throttle task-map)]
+                 (throttler/throttle-fn identity rate period burst)
+                 identity)}))
 
 (defn start-function
   [{:keys [onyx.core/task-map onyx.core/params]} lifecycle]
@@ -171,5 +181,5 @@
    :lifecycle/after-task-stop stop-function})
 
 (defn output [{:keys [onyx.core/task-map] :as pipeline-data}]
-  (let [{:keys [success? post-process retry-params]} (prepare-task-map task-map)]
-    (->HttpOutput success? post-process retry-params (atom nil) (atom 0) (atom false))))
+  (let [{:keys [success? post-process retry-params throttle]} (prepare-task-map task-map)]
+    (->HttpOutput success? post-process retry-params (atom nil) (atom 0) (atom false) throttle)))

@@ -16,7 +16,9 @@
                  ^{:voom {:repo "git@github.com:onyx-platform/onyx.git" :branch "master"}}
                  [org.onyxplatform/onyx "0.14.1"]
                  [aleph "0.4.4"]
-                 [io.netty/netty-all "4.1.12.Final"]]
+                 [io.netty/netty-all "4.1.12.Final"]
+                 [throttler "1.0.0"
+                  :exclusions [org.clojure/core.async]]]
   :profiles {:dev {:dependencies [[cheshire "5.8.0"]]
                    :plugins [[lein-set-version "0.4.1"]
                              [lein-update-dependency "0.1.2"]
