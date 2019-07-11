@@ -53,7 +53,7 @@
   (let [{:keys [method url args]
          :or   {method :post}} message]
     (d/loop [attempt 0]
-      (log/infof "Making HTTP request: %S %s %.30s attempt %d"
+      (log/tracef "Making HTTP request: %S %s %.30s attempt %d"
         (name method) url args attempt)
       (d/chain
         (http-request method url args success? async-exception-fn)
