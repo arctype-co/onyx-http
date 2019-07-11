@@ -82,7 +82,7 @@
   [{:keys [success? post-process retry-params]} run-state message]
   (let [request (or (:request message) (throw (ex-info "No :request in message" message)))
         send-retry-params (assoc retry-params :initial-request-time (System/currentTimeMillis))
-        result (deref (process-message request success? post-process nil #(throw %) send-retry-params run-state))]
+        result (deref (process-message request success? post-process nil #(if (instance? Throwable %) % (:response %)) send-retry-params run-state))]
     (if (instance? Throwable result)
       (throw result)
       (assoc message :response result))))
