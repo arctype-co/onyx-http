@@ -1,6 +1,7 @@
 (ns onyx.plugin.http-output
   (:require [onyx.static.util :refer [kw->fn]]
             [onyx.plugin.protocols :as p]
+            [byte-streams :as bs]
             [taoensso.timbre :as log]
             [aleph.http :as http]
             [manifold.deferred :as d]
@@ -53,13 +54,16 @@
   (let [{:keys [method url args]
          :or   {method :post}} message]
     (d/loop [attempt 0]
-      (log/tracef "Making HTTP request: %S %s %.30s attempt %d"
+      (log/debugf "Making HTTP request: %S %s %.30s attempt %d"
         (name method) url args attempt)
       (d/chain
         (http-request method url args success? async-exception-fn)
 
         (fn [[is-successful response]]
-          (let [next-backoff-ms (next-backoff attempt retry-params)]
+          (let [next-backoff-ms (next-backoff attempt retry-params)
+                ; Make the response serializable
+                response (if (some? (:body response)) (update response :body bs/to-string) response)
+                response (into {} response)]
             (cond
               is-successful
               (do
