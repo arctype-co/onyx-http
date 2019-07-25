@@ -15,7 +15,7 @@
   :dependencies [[org.clojure/clojure "1.8.0"]
                  ^{:voom {:repo "git@github.com:onyx-platform/onyx.git" :branch "master"}}
                  [org.onyxplatform/onyx "0.14.1"]
-                 [aleph "0.4.4"]
+                 [aleph "0.4.7-alpha4"]
                  [io.netty/netty-all "4.1.12.Final"]
                  [throttler "1.0.0"
                   :exclusions [org.clojure/core.async]]]
