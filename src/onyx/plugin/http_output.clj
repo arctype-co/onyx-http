@@ -25,11 +25,11 @@
                (+ (:initial-request-time params) (:max-total-sleep-ms params)))
         next-backoff-ms))))
 
-
-(defn http-request [method url args success? async-exception-fn]
+(defn http-request [pool method url args success? async-exception-fn]
   (-> (http/request (assoc args
-                      :request-method method
-                      :url url))
+                           :pool pool
+                           :request-method method
+                           :url url))
 
       (d/chain
         (fn [response]
@@ -44,7 +44,7 @@
                     :exception (pr-str e)}]))))
 
 
-(defn process-message [message success? post-process ack-fn async-exception-fn retry-params run-state]
+(defn process-message [message success? post-process ack-fn async-exception-fn retry-params run-state connection-pool]
   "Retry params:
    - allow-retry? - if we will retry or not
    - initial-request-time - time of first request
@@ -57,7 +57,7 @@
       (log/tracef "Making HTTP request: %S %s %.30s attempt %d"
         (name method) url args attempt)
       (d/chain
-        (http-request method url args success? async-exception-fn)
+        (http-request connection-pool method url args success? async-exception-fn)
 
         (fn [[is-successful response]]
           (let [next-backoff-ms (next-backoff attempt retry-params)
@@ -89,10 +89,10 @@
 
 (defn send-request
   "Use send-request to execute HTTP requests in a :function task type. Requires function-lifecycle on the task."
-  [{:keys [success? post-process retry-params throttle]} run-state message]
+  [{:keys [success? post-process retry-params throttle connection-pool]} run-state message]
   (let [request (or (:request message) (throw (ex-info "No :request in message" message)))
         send-retry-params (assoc retry-params :initial-request-time (System/currentTimeMillis))
-        result (deref (throttle (process-message request success? post-process nil #(if (instance? Throwable %) % (:response %)) send-retry-params run-state)))]
+        result (deref (throttle (process-message request success? post-process nil #(if (instance? Throwable %) % (:response %)) send-retry-params run-state connection-pool)))]
     (if (instance? Throwable result)
       (throw result)
       (assoc message :response result))))
@@ -169,7 +169,10 @@
      :retry-params retry-params
      :throttle (if-let [{:keys [rate period burst]} (:http-output/throttle task-map)]
                  (throttler/throttle-fn identity rate period burst)
-                 identity)}))
+                 identity)
+     :connection-pool (when-let [cp (:http-output/connection-pool task-map)]
+                        (log/debugf "Setting up connection pool: %s" (pr-str cp))
+                        (http/connection-pool cp))}))
 
 (defn start-function
   [{:keys [onyx.core/task-map onyx.core/params]} lifecycle]
